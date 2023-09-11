@@ -13,7 +13,7 @@ namespace MHServerEmu.GameServer.Common
 
         public PrototypeCollectionEntry(CodedInputStream stream)
         {
-            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.Property);
+            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.All);
             Value = stream.ReadRawVarint32();
         }
 
@@ -25,29 +25,24 @@ namespace MHServerEmu.GameServer.Common
 
         public byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WritePrototypeId(PrototypeId, PrototypeEnumType.Property);
-                stream.WriteRawVarint32(Value);
+                cos.WritePrototypeId(PrototypeId, PrototypeEnumType.All);
+                cos.WriteRawVarint32(Value);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
-                streamWriter.WriteLine($"Value: 0x{Value.ToString("X")}");
-
-                streamWriter.Flush();
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            StringBuilder sb = new();
+            sb.AppendLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
+            sb.AppendLine($"Value: 0x{Value:X}");
+            return sb.ToString();
         }
     }
 }

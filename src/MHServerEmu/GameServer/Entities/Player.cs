@@ -1,6 +1,6 @@
 ﻿using System.Text;
 using Google.ProtocolBuffers;
-using MHServerEmu.Common.Encoding;
+using MHServerEmu.Common.Encoders;
 using MHServerEmu.Common.Extensions;
 using MHServerEmu.GameServer.Achievements;
 using MHServerEmu.GameServer.Common;
@@ -45,7 +45,7 @@ namespace MHServerEmu.GameServer.Entities
 
             ReadEntityFields(stream);
 
-            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.Property);
+            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.All);
 
             Missions = new Mission[stream.ReadRawVarint64()];
             for (int i = 0; i < Missions.Length; i++)
@@ -74,7 +74,7 @@ namespace MHServerEmu.GameServer.Entities
 
             StashInventories = new ulong[stream.ReadRawVarint64()];
             for (int i = 0; i < StashInventories.Length; i++)
-                StashInventories[i] = stream.ReadPrototypeId(PrototypeEnumType.Property);
+                StashInventories[i] = stream.ReadPrototypeId(PrototypeEnumType.All);
 
             AvailableBadges = new uint[stream.ReadRawVarint64()];
 
@@ -84,7 +84,7 @@ namespace MHServerEmu.GameServer.Entities
 
             ChatChannelOptions2 = new ulong[stream.ReadRawVarint64()];
             for (int i = 0; i < ChatChannelOptions2.Length; i++)
-                ChatChannelOptions2[i] = stream.ReadPrototypeId(PrototypeEnumType.Property);
+                ChatChannelOptions2[i] = stream.ReadPrototypeId(PrototypeEnumType.All);
 
             UnknownOptions = new ulong[stream.ReadRawVarint64()];
             for (int i = 0; i < UnknownOptions.Length; i++)
@@ -104,11 +104,11 @@ namespace MHServerEmu.GameServer.Entities
         }
 
         // note: this is ugly
-        public Player(ulong replicationPolicy, ulong replicationId, Property[] properties,
+        public Player(uint replicationPolicy, ReplicatedPropertyCollection propertyCollection,
             ulong prototypeId, Mission[] missions, Quest[] quests, ulong unknownCollectionRepId, uint unknownCollectionSize,
             ulong shardId, ReplicatedString replicatedString1, ulong community1, ulong community2, ReplicatedString replicatedString2,
             ulong matchQueueStatus, bool replicationPolicyBool, ulong dateTime, Community community, ulong[] unknownFields)
-            : base(replicationPolicy, replicationId, properties, unknownFields)
+            : base(replicationPolicy, propertyCollection, unknownFields)
         {
             PrototypeId = prototypeId;
             Missions = missions;
@@ -129,9 +129,9 @@ namespace MHServerEmu.GameServer.Entities
 
         public override byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
                 // Prepare bool encoder
                 BoolEncoder boolEncoder = new();
@@ -149,114 +149,102 @@ namespace MHServerEmu.GameServer.Entities
                 boolEncoder.Cook();
 
                 // Encode
-                WriteEntityFields(stream);
+                WriteEntityFields(cos);
 
-                stream.WritePrototypeId(PrototypeId, PrototypeEnumType.Property);
+                cos.WritePrototypeId(PrototypeId, PrototypeEnumType.All);
 
-                stream.WriteRawVarint64((ulong)Missions.Length);
+                cos.WriteRawVarint64((ulong)Missions.Length);
                 foreach (Mission mission in Missions)
-                    stream.WriteRawBytes(mission.Encode(boolEncoder));
+                    cos.WriteRawBytes(mission.Encode(boolEncoder));
 
-                stream.WriteRawInt32(Quests.Length);
+                cos.WriteRawInt32(Quests.Length);
                 foreach (Quest quest in Quests)
-                    stream.WriteRawBytes(quest.Encode());
+                    cos.WriteRawBytes(quest.Encode());
 
-                stream.WriteRawVarint64(UnknownCollectionRepId);
-                stream.WriteRawUInt32(UnknownCollectionSize);
-                stream.WriteRawVarint64(ShardId);
-                stream.WriteRawBytes(ReplicatedString1.Encode());
-                stream.WriteRawVarint64(Community1);
-                stream.WriteRawVarint64(Community2);
-                stream.WriteRawBytes(ReplicatedString2.Encode());
-                stream.WriteRawVarint64(MatchQueueStatus);
+                cos.WriteRawVarint64(UnknownCollectionRepId);
+                cos.WriteRawUInt32(UnknownCollectionSize);
+                cos.WriteRawVarint64(ShardId);
+                cos.WriteRawBytes(ReplicatedString1.Encode());
+                cos.WriteRawVarint64(Community1);
+                cos.WriteRawVarint64(Community2);
+                cos.WriteRawBytes(ReplicatedString2.Encode());
+                cos.WriteRawVarint64(MatchQueueStatus);
 
                 bitBuffer = boolEncoder.GetBitBuffer();             //ReplicationPolicyBool
-                if (bitBuffer != 0) stream.WriteRawByte(bitBuffer);
+                if (bitBuffer != 0) cos.WriteRawByte(bitBuffer);
 
-                stream.WriteRawVarint64(DateTime);
-                stream.WriteRawBytes(Community.Encode(boolEncoder));
+                cos.WriteRawVarint64(DateTime);
+                cos.WriteRawBytes(Community.Encode(boolEncoder));
 
                 bitBuffer = boolEncoder.GetBitBuffer();             //Flag3
-                if (bitBuffer != 0) stream.WriteRawByte(bitBuffer);
+                if (bitBuffer != 0) cos.WriteRawByte(bitBuffer);
 
-                stream.WriteRawVarint64((ulong)StashInventories.Length);
-                foreach (ulong stashInventory in StashInventories) stream.WritePrototypeId(stashInventory, PrototypeEnumType.Property);
+                cos.WriteRawVarint64((ulong)StashInventories.Length);
+                foreach (ulong stashInventory in StashInventories) cos.WritePrototypeId(stashInventory, PrototypeEnumType.All);
 
-                stream.WriteRawVarint64((ulong)AvailableBadges.Length);
+                cos.WriteRawVarint64((ulong)AvailableBadges.Length);
                 foreach (uint badge in AvailableBadges)
-                    stream.WriteRawVarint64(badge);
+                    cos.WriteRawVarint64(badge);
 
-                stream.WriteRawVarint64((ulong)ChatChannelOptions.Length);
+                cos.WriteRawVarint64((ulong)ChatChannelOptions.Length);
                 foreach (ChatChannelOption option in ChatChannelOptions)
-                    stream.WriteRawBytes(option.Encode(boolEncoder));
+                    cos.WriteRawBytes(option.Encode(boolEncoder));
 
-                stream.WriteRawVarint64((ulong)ChatChannelOptions2.Length);
+                cos.WriteRawVarint64((ulong)ChatChannelOptions2.Length);
                 foreach (ulong option in ChatChannelOptions2)
-                    stream.WritePrototypeId(option, PrototypeEnumType.Property);
+                    cos.WritePrototypeId(option, PrototypeEnumType.All);
 
-                stream.WriteRawVarint64((ulong)UnknownOptions.Length);
+                cos.WriteRawVarint64((ulong)UnknownOptions.Length);
                 foreach (ulong option in UnknownOptions)
-                    stream.WriteRawVarint64(option);
+                    cos.WriteRawVarint64(option);
 
-                stream.WriteRawVarint64((ulong)EquipmentInvUISlots.Length);
+                cos.WriteRawVarint64((ulong)EquipmentInvUISlots.Length);
                 foreach (EquipmentInvUISlot slot in EquipmentInvUISlots)
-                    stream.WriteRawBytes(slot.Encode());
+                    cos.WriteRawBytes(slot.Encode());
 
-                stream.WriteRawVarint64((ulong)AchievementStates.Length);
+                cos.WriteRawVarint64((ulong)AchievementStates.Length);
                 foreach (AchievementState state in AchievementStates)
-                    stream.WriteRawBytes(state.Encode());
+                    cos.WriteRawBytes(state.Encode());
 
-                stream.WriteRawVarint64((ulong)StashTabOptions.Length);
+                cos.WriteRawVarint64((ulong)StashTabOptions.Length);
                 foreach (StashTabOption option in StashTabOptions)
-                    stream.WriteRawBytes(option.Encode());
+                    cos.WriteRawBytes(option.Encode());
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream stream = new())
-            using (StreamWriter writer = new(stream))
-            {
-                WriteEntityString(writer);
+            StringBuilder sb = new();
+            WriteEntityString(sb);
 
-                writer.WriteLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
-                for (int i = 0; i < Missions.Length; i++) writer.WriteLine($"Mission{i}: {Missions[i]}");
-                for (int i = 0; i < Quests.Length; i++) writer.WriteLine($"Quest{i}: {Quests[i]}");
+            sb.AppendLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
+            for (int i = 0; i < Missions.Length; i++) sb.AppendLine($"Mission{i}: {Missions[i]}");
+            for (int i = 0; i < Quests.Length; i++) sb.AppendLine($"Quest{i}: {Quests[i]}");
+            sb.AppendLine($"UnknownCollectionRepId: 0x{UnknownCollectionRepId:X}");
+            sb.AppendLine($"UnknownCollectionSize: 0x{UnknownCollectionSize:X}");
+            sb.AppendLine($"ShardId: 0x{ShardId:X}");
+            sb.AppendLine($"ReplicatedString1: {ReplicatedString1}");
+            sb.AppendLine($"Community1: 0x{Community1:X}");
+            sb.AppendLine($"Community2: 0x{Community2:X}");
+            sb.AppendLine($"ReplicatedString2: {ReplicatedString2}");
+            sb.AppendLine($"MatchQueueStatus: 0x{MatchQueueStatus:X}");
+            sb.AppendLine($"ReplicationPolicyBool: {ReplicationPolicyBool}");
+            sb.AppendLine($"DateTime: 0x{DateTime:X}");
+            sb.AppendLine($"Community: {Community}");
+            sb.AppendLine($"Flag3: {Flag3}");
+            for (int i = 0; i < StashInventories.Length; i++) sb.AppendLine($"StashInventory{i}: {GameDatabase.GetPrototypePath(StashInventories[i])}");
+            for (int i = 0; i < AvailableBadges.Length; i++) sb.AppendLine($"AvailableBadge{i}: 0x{AvailableBadges[i]:X}");
+            for (int i = 0; i < ChatChannelOptions.Length; i++) sb.AppendLine($"ChatChannelOption{i}: {ChatChannelOptions[i]}");
+            for (int i = 0; i < ChatChannelOptions2.Length; i++) sb.AppendLine($"ChatChannelOptions2_{i}: {GameDatabase.GetPrototypePath(ChatChannelOptions2[i])}");
+            for (int i = 0; i < UnknownOptions.Length; i++) sb.AppendLine($"UnknownOption{i}: 0x{UnknownOptions[i]:X}");
+            for (int i = 0; i < EquipmentInvUISlots.Length; i++) sb.AppendLine($"EquipmentInvUISlot{i}: {EquipmentInvUISlots[i]}");
+            for (int i = 0; i < AchievementStates.Length; i++) sb.AppendLine($"AchievementState{i}: {AchievementStates[i]}");
+            for (int i = 0; i < StashTabOptions.Length; i++) sb.AppendLine($"StashTabOption{i}: {StashTabOptions[i]}");
 
-                writer.WriteLine($"UnknownCollectionRepId: 0x{UnknownCollectionRepId.ToString("X")}");
-                writer.WriteLine($"UnknownCollectionSize: 0x{UnknownCollectionSize.ToString("X")}");
-                writer.WriteLine($"ShardId: 0x{ShardId.ToString("X")}");
-                writer.WriteLine($"ReplicatedString1: {ReplicatedString1}");
-                writer.WriteLine($"Community1: 0x{Community1.ToString("X")}");
-                writer.WriteLine($"Community2: 0x{Community2.ToString("X")}");
-                writer.WriteLine($"ReplicatedString2: {ReplicatedString2}");
-                writer.WriteLine($"MatchQueueStatus: 0x{MatchQueueStatus.ToString("X")}");
-                writer.WriteLine($"ReplicationPolicyBool: 0x{DateTime.ToString("X")}");
-                writer.WriteLine($"DateTime: 0x{DateTime.ToString("X")}");
-                writer.WriteLine($"Community: {Community}");
-
-                writer.WriteLine($"Flag3: {Flag3}");
-                for (int i = 0; i < StashInventories.Length; i++) writer.WriteLine($"StashInventory{i}: {GameDatabase.GetPrototypePath(StashInventories[i])}");
-                for (int i = 0; i < AvailableBadges.Length; i++) writer.WriteLine($"AvailableBadge{i}: 0x{AvailableBadges[i].ToString("X")}");
-
-                for (int i = 0; i < ChatChannelOptions.Length; i++) writer.WriteLine($"ChatChannelOption{i}: {ChatChannelOptions[i]}");
-
-                for (int i = 0; i < ChatChannelOptions2.Length; i++) writer.WriteLine($"ChatChannelOptions2_{i}: {GameDatabase.GetPrototypePath(ChatChannelOptions2[i])}");
-
-                for (int i = 0; i < UnknownOptions.Length; i++) writer.WriteLine($"UnknownOption{i}: 0x{UnknownOptions[i].ToString("X")}");
-
-                for (int i = 0; i < EquipmentInvUISlots.Length; i++) writer.WriteLine($"EquipmentInvUISlot{i}: {EquipmentInvUISlots[i]}");
-
-                for (int i = 0; i < AchievementStates.Length; i++) writer.WriteLine($"AchievementState{i}: {AchievementStates[i]}");
-
-                for (int i = 0; i < StashTabOptions.Length; i++) writer.WriteLine($"StashTabOption{i}: {StashTabOptions[i]}");
-
-                writer.Flush();
-                return Encoding.UTF8.GetString(stream.ToArray());
-            }
+            return sb.ToString();
         }
     }
 }

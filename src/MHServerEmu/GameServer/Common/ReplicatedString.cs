@@ -23,29 +23,24 @@ namespace MHServerEmu.GameServer.Common
 
         public byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WriteRawVarint64(ReplicationId);
-                stream.WriteRawString(Text);
+                cos.WriteRawVarint64(ReplicationId);
+                cos.WriteRawString(Text);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"ReplicationId: 0x{ReplicationId.ToString("X")}");
-                streamWriter.WriteLine($"Text: {Text}");
-
-                streamWriter.Flush();
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            StringBuilder sb = new();
+            sb.AppendLine($"ReplicationId: 0x{ReplicationId:X}");
+            sb.AppendLine($"Text: {Text}");
+            return sb.ToString();
         }
     }
 }

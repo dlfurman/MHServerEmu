@@ -1,6 +1,7 @@
 ﻿using System.Reflection;
 using Gazillion;
 using MHServerEmu.Common.Config;
+using MHServerEmu.Common.Logging;
 using MHServerEmu.Networking;
 
 namespace MHServerEmu.Common.Commands
@@ -94,6 +95,7 @@ namespace MHServerEmu.Common.Commands
 
                 foreach (var kvp in CommandGroupDict)
                 {
+                    if (client != null && kvp.Key.MinUserLevel > client.Session.Account.UserLevel) continue;    // Skip commands that are not available for this account's user level
                     output = $"{output}{kvp.Key.Name}, ";
                 }
 

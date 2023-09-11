@@ -1,6 +1,6 @@
 ﻿using System.Text;
 using Google.ProtocolBuffers;
-using MHServerEmu.Common.Encoding;
+using MHServerEmu.Common.Encoders;
 using MHServerEmu.Common.Extensions;
 using MHServerEmu.GameServer.GameData;
 
@@ -22,13 +22,13 @@ namespace MHServerEmu.GameServer.Entities.Avatars
             if (boolDecoder.IsEmpty) boolDecoder.SetBits(stream.ReadRawByte());
             ShouldPersist = boolDecoder.ReadBool();
 
-            AssociatedTransformMode = stream.ReadPrototypeId(PrototypeEnumType.Property);
-            Slot0 = stream.ReadPrototypeId(PrototypeEnumType.Property);
-            Slot1 = stream.ReadPrototypeId(PrototypeEnumType.Property);
+            AssociatedTransformMode = stream.ReadPrototypeId(PrototypeEnumType.All);
+            Slot0 = stream.ReadPrototypeId(PrototypeEnumType.All);
+            Slot1 = stream.ReadPrototypeId(PrototypeEnumType.All);
 
             PowerSlots = new ulong[stream.ReadRawVarint64()];
             for (int i = 0; i < PowerSlots.Length; i++)
-                PowerSlots[i] = stream.ReadPrototypeId(PrototypeEnumType.Property);
+                PowerSlots[i] = stream.ReadPrototypeId(PrototypeEnumType.All);
         }
 
         public AbilityKeyMapping(int powerSpecIndex, bool shouldPersist, ulong associatedTransformMode, ulong slot0, ulong slot1, ulong[] powerSlots)
@@ -43,43 +43,38 @@ namespace MHServerEmu.GameServer.Entities.Avatars
 
         public byte[] Encode(BoolEncoder boolEncoder)
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WriteRawInt32(PowerSpecIndex);
+                cos.WriteRawInt32(PowerSpecIndex);
 
                 byte bitBuffer = boolEncoder.GetBitBuffer();             // ShouldPersist
-                if (bitBuffer != 0) stream.WriteRawByte(bitBuffer);
+                if (bitBuffer != 0) cos.WriteRawByte(bitBuffer);
 
-                stream.WritePrototypeId(AssociatedTransformMode, PrototypeEnumType.Property);
-                stream.WritePrototypeId(Slot0, PrototypeEnumType.Property);
-                stream.WritePrototypeId(Slot1, PrototypeEnumType.Property);
+                cos.WritePrototypeId(AssociatedTransformMode, PrototypeEnumType.All);
+                cos.WritePrototypeId(Slot0, PrototypeEnumType.All);
+                cos.WritePrototypeId(Slot1, PrototypeEnumType.All);
 
-                stream.WriteRawVarint64((ulong)PowerSlots.Length);
+                cos.WriteRawVarint64((ulong)PowerSlots.Length);
                 foreach (ulong powerSlot in PowerSlots)
-                    stream.WritePrototypeId(powerSlot, PrototypeEnumType.Property);
+                    cos.WritePrototypeId(powerSlot, PrototypeEnumType.All);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"PowerSpecIndex: 0x{PowerSpecIndex.ToString("X")}");
-                streamWriter.WriteLine($"ShouldPersist: {ShouldPersist}");
-                streamWriter.WriteLine($"AssociatedTransformMode: {GameDatabase.GetPrototypePath(AssociatedTransformMode)}");
-                streamWriter.WriteLine($"Slot0: {GameDatabase.GetPrototypePath(Slot0)}");
-                streamWriter.WriteLine($"Slot1: {GameDatabase.GetPrototypePath(Slot1)}");
-                for (int i = 0; i < PowerSlots.Length; i++) streamWriter.WriteLine($"PowerSlot{i}: {GameDatabase.GetPrototypePath(PowerSlots[i])}");
-
-                streamWriter.Flush();
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            StringBuilder sb = new();
+            sb.AppendLine($"PowerSpecIndex: 0x{PowerSpecIndex:X}");
+            sb.AppendLine($"ShouldPersist: {ShouldPersist}");
+            sb.AppendLine($"AssociatedTransformMode: {GameDatabase.GetPrototypePath(AssociatedTransformMode)}");
+            sb.AppendLine($"Slot0: {GameDatabase.GetPrototypePath(Slot0)}");
+            sb.AppendLine($"Slot1: {GameDatabase.GetPrototypePath(Slot1)}");
+            for (int i = 0; i < PowerSlots.Length; i++) sb.AppendLine($"PowerSlot{i}: {GameDatabase.GetPrototypePath(PowerSlots[i])}");
+            return sb.ToString();
         }
     }
 }

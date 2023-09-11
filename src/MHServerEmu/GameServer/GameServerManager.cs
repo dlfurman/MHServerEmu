@@ -1,7 +1,11 @@
-﻿using MHServerEmu.Common;
-using MHServerEmu.Networking;
+﻿using Gazillion;
+using ICSharpCode.SharpZipLib.Zip.Compression.Streams;
+using MHServerEmu.Common.Logging;
+using MHServerEmu.GameServer.Achievements;
+using MHServerEmu.GameServer.Billing;
 using MHServerEmu.GameServer.Frontend;
 using MHServerEmu.GameServer.Games;
+using MHServerEmu.Networking;
 
 namespace MHServerEmu.GameServer
 {
@@ -9,21 +13,30 @@ namespace MHServerEmu.GameServer
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
+        public AchievementDatabase AchievementDatabase { get; }
+
         public GameManager GameManager { get; }
 
         public FrontendService FrontendService { get; }
         public GroupingManagerService GroupingManagerService { get; }
         public PlayerManagerService PlayerManagerService { get; }
+        public BillingService BillingService { get; }
 
         public long StartTime { get; }      // Used for calculating game time 
 
         public GameServerManager()
         {
-            GameManager = new();
+            // Initialize achievement database
+            AchievementDatabase = new(File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), "Assets", "CompressedAchievementDatabaseDump.bin")));
 
+            // Initialize game manager
+            GameManager = new(this);
+
+            // Initialize services
             FrontendService = new(this);
             GroupingManagerService = new(this);
             PlayerManagerService = new(this);
+            BillingService = new(this);
 
             StartTime = GetDateTime();
         }

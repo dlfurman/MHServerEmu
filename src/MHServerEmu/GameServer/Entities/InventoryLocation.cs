@@ -27,31 +27,26 @@ namespace MHServerEmu.GameServer.Entities
 
         public byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WriteRawVarint64(ContainerEntityId);
-                stream.WritePrototypeId(InventoryPrototypeId, PrototypeEnumType.Inventory);
-                stream.WriteRawVarint64(Slot);
+                cos.WriteRawVarint64(ContainerEntityId);
+                cos.WritePrototypeId(InventoryPrototypeId, PrototypeEnumType.Inventory);
+                cos.WriteRawVarint64(Slot);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"ContainerEntityId: 0x{ContainerEntityId.ToString("X")}");
-                streamWriter.WriteLine($"InventoryPrototypeId: {GameDatabase.GetPrototypePath(InventoryPrototypeId)}");
-                streamWriter.WriteLine($"Slot: 0x{Slot.ToString("X")}");
-
-                streamWriter.Flush();
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            StringBuilder sb = new();
+            sb.AppendLine($"ContainerEntityId: 0x{ContainerEntityId:X}");
+            sb.AppendLine($"InventoryPrototypeId: {GameDatabase.GetPrototypePath(InventoryPrototypeId)}");
+            sb.AppendLine($"Slot: 0x{Slot:X}");
+            return sb.ToString();
         }
     }
 }

@@ -28,26 +28,17 @@ namespace MHServerEmu.GameServer.Entities
             int healthMaxOther, ulong mapRegionId, int mapCellId, ulong contextAreaRef)
         {
             ReplicationPolicy = 0x20;
-            ReplicationId = replicationId;
 
-            Properties = new Property[]
+            PropertyCollection = new(replicationId, new()
             {
-                new(0x4D20000000000000),    // MapPosition
-                new(0x3B20000000000000),    // Health
-                new(0x4CA0000000000000),    // MapAreaId
-                new(0x3C20000000000000),    // HealthMaxOther
-                new(0x4D40000000000000),    // MapRegionId
-                new(0x4CC0000000000000),    // MapCellId
-                new(0x1960000000000000)     // ContextAreaRef
-            };
-
-            Properties[0].Value.Set(mapPosition);
-            Properties[1].Value.Set(health);
-            Properties[2].Value.Set(mapAreaId);
-            Properties[3].Value.Set(healthMaxOther);
-            Properties[4].Value.Set(mapRegionId);
-            Properties[5].Value.Set(mapCellId);
-            Properties[6].Value.Set(contextAreaRef);
+                new(PropertyEnum.MapPosition, mapPosition),
+                new(PropertyEnum.Health, health),
+                new(PropertyEnum.MapAreaId, mapAreaId),
+                new(PropertyEnum.HealthMaxOther, healthMaxOther),
+                new(PropertyEnum.MapRegionId, mapRegionId),
+                new(PropertyEnum.MapCellId, mapCellId),
+                new(PropertyEnum.ContextAreaRef, contextAreaRef)
+            });
 
             UnknownPrototypes = Array.Empty<PrototypeCollectionEntry>();
             Conditions = Array.Empty<Condition>();
@@ -56,31 +47,26 @@ namespace MHServerEmu.GameServer.Entities
 
         public override byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                WriteEntityFields(stream);
-                WriteWorldEntityFields(stream);
-                WriteUnknownFields(stream);
+                WriteEntityFields(cos);
+                WriteWorldEntityFields(cos);
+                WriteUnknownFields(cos);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream stream = new())
-            using (StreamWriter writer = new(stream))
-            {
-                WriteEntityString(writer);
-                WriteWorldEntityString(writer);
-                WriteUnknownFieldString(writer);
-
-                writer.Flush();
-                return Encoding.UTF8.GetString(stream.ToArray());
-            }
+            StringBuilder sb = new();
+            WriteEntityString(sb);
+            WriteWorldEntityString(sb);
+            WriteUnknownFieldString(sb);
+            return sb.ToString();
         }
 
         protected void ReadWorldEntityFields(CodedInputStream stream)
@@ -110,15 +96,15 @@ namespace MHServerEmu.GameServer.Entities
             stream.WriteRawInt32(UnknownPowerVar);
         }
 
-        protected void WriteWorldEntityString(StreamWriter writer)
+        protected void WriteWorldEntityString(StringBuilder sb)
         {
             for (int i = 0; i < UnknownPrototypes.Length; i++)
-                writer.WriteLine($"UnknownPrototype{i}: {UnknownPrototypes[i]}");
+                sb.AppendLine($"UnknownPrototype{i}: {UnknownPrototypes[i]}");
 
             for (int i = 0; i < Conditions.Length; i++)
-                writer.WriteLine($"Condition{i}: {Conditions[i]}");
+                sb.AppendLine($"Condition{i}: {Conditions[i]}");
 
-            writer.WriteLine($"UnknownPowerVar: 0x{UnknownPowerVar.ToString("X")}");
+            sb.AppendLine($"UnknownPowerVar: 0x{UnknownPowerVar:X}");
         }
     }
 }

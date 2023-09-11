@@ -1,6 +1,6 @@
-﻿using MHServerEmu.Common;
-using MHServerEmu.GameServer.GameData;
+﻿using MHServerEmu.Common.Logging;
 using MHServerEmu.GameServer.GameData.Gpak;
+using MHServerEmu.GameServer.GameData.Gpak.FileFormats;
 using MHServerEmu.GameServer.GameData.Prototypes;
 
 namespace MHServerEmu.GameServer.Properties
@@ -13,15 +13,24 @@ namespace MHServerEmu.GameServer.Properties
 
         public PropertyInfoTable(CalligraphyStorage calligraphy)
         {
+            Dictionary<PropertyEnum, PropertyPrototype> mixinDict = new();
+
             // Loop through the main property info directory to get most info
-            foreach (var kvp in calligraphy.DefaultsDict)
+            foreach (DataDirectoryBlueprintEntry dirEntry in calligraphy.BlueprintDirectory.Entries)
             {
-                if (kvp.Key.Contains("Calligraphy/Property/Info"))
+                if (dirEntry.FilePath.Contains("Property/Info"))
                 {
-                    PropertyEnum property = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), Path.GetFileNameWithoutExtension(kvp.Key));
-                    PropertyInfoPrototype prototype = new(kvp.Value);
+                    PropertyEnum property = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), Path.GetFileNameWithoutExtension(dirEntry.FilePath));
+                    PropertyInfoPrototype prototype = new(calligraphy.GetBlueprintPrototype(dirEntry.FilePath));
 
                     _propertyInfoDict.Add(property, prototype);
+                }
+                else if (dirEntry.FilePath.Contains("Property/Mixin") && dirEntry.FilePath.Contains("Prop.blueprint"))   // param mixin information is stored in PropertyPrototypes
+                {
+                    string fileName = Path.GetFileNameWithoutExtension(dirEntry.FilePath);
+                    PropertyEnum property = (PropertyEnum)Enum.Parse(typeof(PropertyEnum), fileName.Substring(0, fileName.Length - 4)); // -4 to remove Prop at the end
+                    PropertyPrototype mixin = new(calligraphy.GetBlueprintPrototype(dirEntry.FilePath));
+                    mixinDict.Add(property, mixin);
                 }
             }
 
@@ -29,18 +38,22 @@ namespace MHServerEmu.GameServer.Properties
             try
             {
                 _propertyInfoDict.Add(PropertyEnum.DisplayNameOverride,
-                    new(calligraphy.PrototypeDict["Calligraphy/Property/Info/DisplayNameOverride.prototype"]));
+                    new(calligraphy.GetPrototype("Property/Info/DisplayNameOverride.prototype")));
 
                 _propertyInfoDict.Add(PropertyEnum.MissileAlwaysCollides,
-                    new(calligraphy.DefaultsDict["Calligraphy/Property/Mixin/BewareOfTiger/MissileAlwaysCollides.defaults"]));
+                    new(calligraphy.GetBlueprintPrototype("Property/Mixin/BewareOfTiger/MissileAlwaysCollides.blueprint")));
 
                 _propertyInfoDict.Add(PropertyEnum.StolenPowerAvailable,
-                    new(calligraphy.DefaultsDict["Calligraphy/Property/Mixin/BewareOfTiger/StolenPowerAvailable.defaults"]));
+                    new(calligraphy.GetBlueprintPrototype("Property/Mixin/BewareOfTiger/StolenPowerAvailable.blueprint")));
             }
             catch
             {
                 Logger.Warn("Failed to manually add additional property info");
             }
+
+            // Add mixin information to PropertyInfo
+            foreach (var kvp in mixinDict)
+                _propertyInfoDict[kvp.Key].Mixin = kvp.Value;
 
             // Finish initialization
             if (Verify())

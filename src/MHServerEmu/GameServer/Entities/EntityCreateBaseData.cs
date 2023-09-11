@@ -2,6 +2,7 @@
 using Google.ProtocolBuffers;
 using MHServerEmu.Common.Extensions;
 using MHServerEmu.GameServer.Common;
+using MHServerEmu.GameServer.Entities.Locomotion;
 using MHServerEmu.GameServer.GameData;
 
 namespace MHServerEmu.GameServer.Entities
@@ -95,79 +96,80 @@ namespace MHServerEmu.GameServer.Entities
 
         public byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WriteRawVarint32(ReplicationPolicy);
-                stream.WriteRawVarint64(EntityId);
-                stream.WritePrototypeId(PrototypeId, PrototypeEnumType.Entity);
-                stream.WriteRawVarint32(Flags.ToUInt32());
-                stream.WriteRawVarint32(LocFlags.ToUInt32());
+                cos.WriteRawVarint32(ReplicationPolicy);
+                cos.WriteRawVarint64(EntityId);
+                cos.WritePrototypeId(PrototypeId, PrototypeEnumType.Entity);
+                cos.WriteRawVarint32(Flags.ToUInt32());
+                cos.WriteRawVarint32(LocFlags.ToUInt32());
 
-                if (Flags[5]) stream.WriteRawVarint32(InterestPolicies);
-                if (Flags[9]) stream.WriteRawVarint32(AvatarWorldInstanceId);
-                if (Flags[8]) stream.WriteRawVarint32(DbId);
+                if (Flags[5]) cos.WriteRawVarint32(InterestPolicies);
+                if (Flags[9]) cos.WriteRawVarint32(AvatarWorldInstanceId);
+                if (Flags[8]) cos.WriteRawVarint32(DbId);
 
                 // Location
                 if (Flags[0])
                 {
-                    stream.WriteRawBytes(Position.Encode(3));
+                    cos.WriteRawBytes(Position.Encode(3));
 
                     if (LocFlags[0])
-                        stream.WriteRawBytes(Orientation.Encode(6));
+                        cos.WriteRawBytes(Orientation.Encode(6));
                     else
-                        stream.WriteRawFloat(Orientation.X, 6);
+                        cos.WriteRawFloat(Orientation.X, 6);
                 }
 
-                if (LocFlags[1] == false) stream.WriteRawBytes(LocomotionState.Encode(LocFlags));
-                if (Flags[11]) stream.WriteRawFloat(BoundsScaleOverride, 8);
-                if (Flags[3]) stream.WriteRawVarint64(SourceEntityId);
-                if (Flags[4]) stream.WriteRawBytes(SourcePosition.Encode(3));
-                if (Flags[1]) stream.WritePrototypeId(ActivePowerPrototypeId, PrototypeEnumType.Power);
-                if (Flags[6]) stream.WriteRawBytes(InvLoc.Encode());
-                if (Flags[7]) stream.WriteRawBytes(InvLocPrev.Encode());
+                if (LocFlags[1] == false) cos.WriteRawBytes(LocomotionState.Encode(LocFlags));
+                if (Flags[11]) cos.WriteRawFloat(BoundsScaleOverride, 8);
+                if (Flags[3]) cos.WriteRawVarint64(SourceEntityId);
+                if (Flags[4]) cos.WriteRawBytes(SourcePosition.Encode(3));
+                if (Flags[1]) cos.WritePrototypeId(ActivePowerPrototypeId, PrototypeEnumType.Power);
+                if (Flags[6]) cos.WriteRawBytes(InvLoc.Encode());
+                if (Flags[7]) cos.WriteRawBytes(InvLocPrev.Encode());
 
                 if (Flags[14])
                 {
-                    stream.WriteRawVarint64((ulong)Vector.Length);
+                    cos.WriteRawVarint64((ulong)Vector.Length);
                     for (int i = 0; i < Vector.Length; i++)
-                        stream.WriteRawVarint64(Vector[i]);
+                        cos.WriteRawVarint64(Vector[i]);
                 }
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"ReplicationPolicy: 0x{ReplicationPolicy.ToString("X")}");
-                streamWriter.WriteLine($"EntityId: 0x{EntityId.ToString("X")}");
-                streamWriter.WriteLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
-                for (int i = 0; i < Flags.Length; i++) streamWriter.WriteLine($"Flag{i}: {Flags[i]}");
-                for (int i = 0; i < LocFlags.Length; i++) streamWriter.WriteLine($"LocFlag{i}: {LocFlags[i]}");
-                streamWriter.WriteLine($"InterestPolicies: 0x{InterestPolicies.ToString("X")}");
-                streamWriter.WriteLine($"AvatarWorldInstanceId: 0x{AvatarWorldInstanceId.ToString("X")}");
-                streamWriter.WriteLine($"DbId: 0x{DbId.ToString("X")}");
-                streamWriter.WriteLine($"Position: {Position}");
-                streamWriter.WriteLine($"Orientation: {Orientation}");
-                streamWriter.WriteLine($"LocomotionState: {LocomotionState}");
-                streamWriter.WriteLine($"BoundsScaleOverride: {BoundsScaleOverride}");
-                streamWriter.WriteLine($"SourceEntityId: 0x{SourceEntityId}");
-                streamWriter.WriteLine($"SourcePosition: {SourcePosition}");
-                streamWriter.WriteLine($"ActivePowerPrototypeId: {GameDatabase.GetPrototypePath(ActivePowerPrototypeId)}");
-                streamWriter.WriteLine($"InvLoc: {InvLoc}");
-                streamWriter.WriteLine($"InvLocPrev: {InvLocPrev}");
-                for (int i = 0; i < Vector.Length; i++) streamWriter.WriteLine($"Vector{i}: 0x{Vector[i].ToString("X")}");
+            StringBuilder sb = new();
+            sb.AppendLine($"ReplicationPolicy: 0x{ReplicationPolicy:X}");
+            sb.AppendLine($"EntityId: 0x{EntityId:X}");
+            sb.AppendLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
 
-                streamWriter.Flush();
+            sb.Append("Flags: ");
+            for (int i = 0; i < Flags.Length; i++) if (Flags[i]) sb.Append($"{i} ");
+            sb.AppendLine();
 
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            sb.Append("LocFlags: ");
+            for (int i = 0; i < LocFlags.Length; i++) if (LocFlags[i]) sb.Append($"{i} ");
+            sb.AppendLine();
+
+            sb.AppendLine($"InterestPolicies: 0x{InterestPolicies:X}");
+            sb.AppendLine($"AvatarWorldInstanceId: 0x{AvatarWorldInstanceId:X}");
+            sb.AppendLine($"DbId: 0x{DbId:X}");
+            sb.AppendLine($"Position: {Position}");
+            sb.AppendLine($"Orientation: {Orientation}");
+            sb.AppendLine($"LocomotionState: {LocomotionState}");
+            sb.AppendLine($"BoundsScaleOverride: {BoundsScaleOverride}");
+            sb.AppendLine($"SourceEntityId: 0x{SourceEntityId}");
+            sb.AppendLine($"SourcePosition: {SourcePosition}");
+            sb.AppendLine($"ActivePowerPrototypeId: {GameDatabase.GetPrototypePath(ActivePowerPrototypeId)}");
+            sb.AppendLine($"InvLoc: {InvLoc}");
+            sb.AppendLine($"InvLocPrev: {InvLocPrev}");
+            for (int i = 0; i < Vector.Length; i++) sb.AppendLine($"Vector{i}: 0x{Vector[i]:X}");
+            return sb.ToString();
         }
     }
 }

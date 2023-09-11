@@ -1,5 +1,5 @@
-﻿using Google.ProtocolBuffers;
-using System.Text;
+﻿using System.Text;
+using Google.ProtocolBuffers;
 using MHServerEmu.Common.Extensions;
 using MHServerEmu.GameServer.GameData;
 
@@ -15,7 +15,7 @@ namespace MHServerEmu.GameServer.Misc
 
         public StashTabOption(CodedInputStream stream)
         {
-            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.Property);
+            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.All);
             Name = stream.ReadRawString();
             AssetRef = stream.ReadRawVarint64();
             Field2 = stream.ReadRawInt32();
@@ -33,35 +33,30 @@ namespace MHServerEmu.GameServer.Misc
 
         public byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WritePrototypeId(PrototypeId, PrototypeEnumType.Property);
-                stream.WriteRawString(Name);
-                stream.WriteRawVarint64(AssetRef);
-                stream.WriteRawInt32(Field2);
-                stream.WriteRawInt32(Field3);
+                cos.WritePrototypeId(PrototypeId, PrototypeEnumType.All);
+                cos.WriteRawString(Name);
+                cos.WriteRawVarint64(AssetRef);
+                cos.WriteRawInt32(Field2);
+                cos.WriteRawInt32(Field3);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
-                streamWriter.WriteLine($"Name: {Name}");
-                streamWriter.WriteLine($"AssetRef: 0x{AssetRef.ToString("X")}");
-                streamWriter.WriteLine($"Field2: 0x{Field2}");
-                streamWriter.WriteLine($"Field3: 0x{Field3}");
-
-                streamWriter.Flush();
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            StringBuilder sb = new();
+            sb.AppendLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
+            sb.AppendLine($"Name: {Name}");
+            sb.AppendLine($"AssetRef: 0x{AssetRef:X}");
+            sb.AppendLine($"Field2: 0x{Field2}");
+            sb.AppendLine($"Field3: 0x{Field3}");
+            return sb.ToString();
         }
     }
 }

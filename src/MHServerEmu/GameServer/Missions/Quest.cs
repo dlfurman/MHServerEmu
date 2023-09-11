@@ -27,30 +27,25 @@ namespace MHServerEmu.GameServer.Missions
 
         public byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WriteRawVarint64(PrototypeId);
-                stream.WriteRawVarint64((ulong)Fields.Length);
-                foreach (ulong field in Fields) stream.WriteRawVarint64(field);
+                cos.WriteRawVarint64(PrototypeId);
+                cos.WriteRawVarint64((ulong)Fields.Length);
+                foreach (ulong field in Fields) cos.WriteRawVarint64(field);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"PrototypeId: 0x{PrototypeId.ToString("X")}");
-                for (int i = 0; i < Fields.Length; i++) streamWriter.WriteLine($"Field{i}: 0x{Fields[i].ToString("X")}");
-
-                streamWriter.Flush();
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            StringBuilder sb = new();
+            sb.AppendLine($"PrototypeId: 0x{PrototypeId:X}");
+            for (int i = 0; i < Fields.Length; i++) sb.AppendLine($"Field{i}: 0x{Fields[i]:X}");
+            return sb.ToString();
         }
     }
 }

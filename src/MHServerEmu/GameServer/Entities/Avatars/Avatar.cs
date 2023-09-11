@@ -1,6 +1,6 @@
 ﻿using System.Text;
 using Google.ProtocolBuffers;
-using MHServerEmu.Common.Encoding;
+using MHServerEmu.Common.Encoders;
 using MHServerEmu.Common.Extensions;
 using MHServerEmu.GameServer.Common;
 using MHServerEmu.GameServer.Powers;
@@ -59,9 +59,9 @@ namespace MHServerEmu.GameServer.Entities.Avatars
 
         public override byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
                 // Prepare bool encoder
                 BoolEncoder boolEncoder = new();
@@ -73,41 +73,37 @@ namespace MHServerEmu.GameServer.Entities.Avatars
                 boolEncoder.Cook();
 
                 // Encode
-                WriteEntityFields(stream);
-                WriteWorldEntityFields(stream);
+                WriteEntityFields(cos);
+                WriteWorldEntityFields(cos);
 
-                stream.WriteRawBytes(PlayerName.Encode());
-                stream.WriteRawVarint64(OwnerPlayerDbId);
-                stream.WriteRawString(GuildName);
+                cos.WriteRawBytes(PlayerName.Encode());
+                cos.WriteRawVarint64(OwnerPlayerDbId);
+                cos.WriteRawString(GuildName);
 
                 bitBuffer = boolEncoder.GetBitBuffer();             // IsRuntimeInfo
-                if (bitBuffer != 0) stream.WriteRawByte(bitBuffer);
+                if (bitBuffer != 0) cos.WriteRawByte(bitBuffer);
 
-                stream.WriteRawVarint64((ulong)AbilityKeyMappings.Length);
-                foreach (AbilityKeyMapping keyMap in AbilityKeyMappings) stream.WriteRawBytes(keyMap.Encode(boolEncoder));
+                cos.WriteRawVarint64((ulong)AbilityKeyMappings.Length);
+                foreach (AbilityKeyMapping keyMap in AbilityKeyMappings) cos.WriteRawBytes(keyMap.Encode(boolEncoder));
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream stream = new())
-            using (StreamWriter writer = new(stream))
-            {
-                WriteEntityString(writer);
-                WriteWorldEntityString(writer);
+            StringBuilder sb = new();
+            WriteEntityString(sb);
+            WriteWorldEntityString(sb);
 
-                writer.WriteLine($"PlayerName: {PlayerName}");
-                writer.WriteLine($"OwnerPlayerDbId: 0x{OwnerPlayerDbId.ToString("X")}");
-                writer.WriteLine($"GuildName: {GuildName}");
-                writer.WriteLine($"IsRuntimeInfo: {IsRuntimeInfo}");
-                for (int i = 0; i < AbilityKeyMappings.Length; i++) writer.WriteLine($"AbilityKeyMapping{i}: {AbilityKeyMappings[i]}");
+            sb.AppendLine($"PlayerName: {PlayerName}");
+            sb.AppendLine($"OwnerPlayerDbId: 0x{OwnerPlayerDbId:X}");
+            sb.AppendLine($"GuildName: {GuildName}");
+            sb.AppendLine($"IsRuntimeInfo: {IsRuntimeInfo}");
+            for (int i = 0; i < AbilityKeyMappings.Length; i++) sb.AppendLine($"AbilityKeyMapping{i}: {AbilityKeyMappings[i]}");
 
-                writer.Flush();
-                return Encoding.UTF8.GetString(stream.ToArray());
-            }
+            return sb.ToString();
         }
     }
 }

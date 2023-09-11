@@ -1,76 +1,91 @@
-﻿using System.Net.Sockets;
-using Google.ProtocolBuffers;
-using MHServerEmu.Common;
-using MHServerEmu.Common.Config;
+﻿using Google.ProtocolBuffers;
+using MHServerEmu.Common.Logging;
 using MHServerEmu.GameServer;
-using MHServerEmu.GameServer.Entities;
-using MHServerEmu.GameServer.Frontend.Accounts;
+using MHServerEmu.GameServer.Frontend;
 using MHServerEmu.GameServer.Games;
 using MHServerEmu.GameServer.Regions;
+using MHServerEmu.Networking.Base;
 
 namespace MHServerEmu.Networking
 {
-    public class FrontendClient
+    public class FrontendClient : IClient
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
-
-        private readonly Socket _socket;
-        private readonly NetworkStream _stream;
-
         private readonly GameServerManager _gameServerManager;
 
+        public Connection Connection { get; set; }
+
+        public ClientSession Session { get; private set; } = null;
         public bool FinishedPlayerMgrServerFrontendHandshake { get; set; } = false;
         public bool FinishedGroupingManagerFrontendHandshake { get; set; } = false;
         public bool IsLoading { get; set; } = false;
         public ulong GameId { get; set; }
-
-        // TODO: move player data to account
         public Game CurrentGame { get => _gameServerManager.GameManager.GetGameById(GameId); }
-        public Account Account { get; set; }
-        public RegionPrototype CurrentRegion { get; set; } = ConfigManager.PlayerData.StartingRegion;
-        public HardcodedAvatarEntity CurrentAvatar { get; set; } = ConfigManager.PlayerData.StartingAvatar;
 
-        public FrontendClient(Socket socket, GameServerManager gameServerManager)
+        public FrontendClient(Connection connection, GameServerManager gameServerManager)
         {
-            _socket = socket;
-            _stream = new NetworkStream(socket);
+            Connection = connection;
             _gameServerManager = gameServerManager;
+        }
 
-            if (RegionManager.IsRegionAvailable(CurrentRegion) == false)
+        public void Parse(ConnectionDataEventArgs e)
+        {
+            CodedInputStream stream = CodedInputStream.CreateInstance(e.Data.ToArray());
+            PacketIn packet = new(stream);
+
+            switch (packet.Command)
             {
-                Logger.Warn($"No data is available for {CurrentRegion}, falling back to NPEAvengersTowerHUBRegion");
-                CurrentRegion = RegionPrototype.NPEAvengersTowerHUBRegion;
+                case MuxCommand.Connect:
+                    Logger.Info($"Accepting connection for muxId {packet.MuxId}");
+                    Connection.Send(new PacketOut(packet.MuxId, MuxCommand.Accept));
+                    break;
+
+                case MuxCommand.Accept:
+                    Logger.Warn($"Received accept for muxId {packet.MuxId}. Is this supposed to happen?");
+                    break;
+
+                case MuxCommand.Disconnect:
+                    Logger.Info($"Received disconnect for muxId {packet.MuxId}");
+                    break;
+
+                case MuxCommand.Insert:
+                    Logger.Warn($"Received insert for muxId {packet.MuxId}. Is this supposed to happen?");
+                    break;
+
+                case MuxCommand.Message:
+                    _gameServerManager.Handle(this, packet.MuxId, packet.Messages);
+                    break;
             }
         }
 
-        public void Run()
+        public void AssignSession(ClientSession session)
         {
-            try
+            if (Session == null)
             {
-                CodedInputStream stream = CodedInputStream.CreateInstance(_stream);
+                Session = session;
 
-                while (_socket.Connected && stream.IsAtEnd == false)
+                if (RegionManager.IsRegionAvailable(Session.Account.PlayerData.Region) == false)
                 {
-                    Handle(stream);
+                    Logger.Warn($"No data is available for {Session.Account.PlayerData.Region}, falling back to NPEAvengersTowerHUBRegion");
+                    Session.Account.PlayerData.Region = RegionPrototype.NPEAvengersTowerHUBRegion;
                 }
-                Logger.Info("Client disconnected");
             }
-            catch (Exception e)
+            else
             {
-                Logger.Error(e.ToString());
+                Logger.Warn($"Failed to assign sessionId {session.Id} to a client: sessionId {Session.Id} is already assigned to this client");
             }
         }
 
-        public void Disconnect()
+        public void SendMuxDisconnect(ushort muxId)
         {
-            _socket.Disconnect(false);
+            Connection.Send(new PacketOut(muxId, MuxCommand.Disconnect));
         }
 
         public void SendMessage(ushort muxId, GameMessage message)
         {
             PacketOut packet = new(muxId, MuxCommand.Message);
             packet.AddMessage(message);
-            Send(packet);
+            Connection.Send(packet);
         }
 
         public void SendMultipleMessages(ushort muxId, GameMessage[] messages)
@@ -80,7 +95,7 @@ namespace MHServerEmu.Networking
             {
                 packet.AddMessage(message);
             }
-            Send(packet);
+            Connection.Send(packet);
         }
 
         public void SendMultipleMessages(ushort muxId, List<GameMessage> messageList)
@@ -90,60 +105,17 @@ namespace MHServerEmu.Networking
 
         public void SendPacketFromFile(string fileName)
         {
-            string path = $"{Directory.GetCurrentDirectory()}\\Assets\\Packets\\{fileName}";
+            string path = Path.Combine(Directory.GetCurrentDirectory(), "Assets", "Packets", fileName);
 
             if (File.Exists(path))
             {
                 Logger.Info($"Sending {fileName}");
-                SendRaw(File.ReadAllBytes(path));
+                Connection.Send(File.ReadAllBytes(path));
             }
             else
             {
                 Logger.Warn($"{fileName} not found");
             }
-        }
-
-        private void Handle(CodedInputStream stream)
-        {
-            PacketIn packet = new(stream);
-
-            switch (packet.Command)
-            {
-                case MuxCommand.Connect:
-                    Logger.Info($"Accepting connection for muxId {packet.MuxId}");
-                    Send(new(packet.MuxId, MuxCommand.Accept));
-                    break;
-
-                case MuxCommand.Accept:
-                    Logger.Warn($"Received accept for muxId {packet.MuxId}. Is this supposed to happen?");
-                    break;
-
-                case MuxCommand.Disconnect:
-                    Logger.Info($"Received disconnect for muxId {packet.MuxId}");
-                    if (packet.MuxId == 1) Disconnect();
-                    break;
-
-                case MuxCommand.Insert:
-                    Logger.Warn($"Received insert for muxId {packet.MuxId}. Is this supposed to happen?");
-                    break;
-
-                case MuxCommand.Message:
-                    _gameServerManager.Handle(this, packet.MuxId, packet.Messages);
-
-                    break;
-            }
-        }
-
-        private void Send(PacketOut packet)
-        {
-            byte[] data = packet.Data;
-            _stream.Write(data, 0, data.Length);
-        }
-
-        private void SendRaw(byte[] data)
-        {
-            Logger.Trace($"OUT: raw {data.Length} bytes");
-            _stream.Write(data, 0, data.Length);
         }
     }
 }

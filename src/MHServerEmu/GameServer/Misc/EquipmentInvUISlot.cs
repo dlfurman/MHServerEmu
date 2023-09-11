@@ -13,7 +13,7 @@ namespace MHServerEmu.GameServer.Misc
         public EquipmentInvUISlot(CodedInputStream stream)
         {
             Index = stream.ReadRawVarint64();
-            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.Property);
+            PrototypeId = stream.ReadPrototypeId(PrototypeEnumType.All);
         }
 
         public EquipmentInvUISlot(ulong index, ulong prototypeId)
@@ -24,29 +24,24 @@ namespace MHServerEmu.GameServer.Misc
 
         public byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WriteRawVarint64(Index);
-                stream.WritePrototypeId(PrototypeId, PrototypeEnumType.Property);
+                cos.WriteRawVarint64(Index);
+                cos.WritePrototypeId(PrototypeId, PrototypeEnumType.All);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream memoryStream = new())
-            using (StreamWriter streamWriter = new(memoryStream))
-            {
-                streamWriter.WriteLine($"Index: 0x{Index.ToString("X")}");
-                streamWriter.WriteLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
-
-                streamWriter.Flush();
-                return Encoding.UTF8.GetString(memoryStream.ToArray());
-            }
+            StringBuilder sb = new();
+            sb.AppendLine($"Index: 0x{Index:X}");
+            sb.AppendLine($"PrototypeId: {GameDatabase.GetPrototypePath(PrototypeId)}");
+            return sb.ToString();
         }
 
     }

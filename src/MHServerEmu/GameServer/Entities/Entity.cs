@@ -1,15 +1,13 @@
 ﻿using System.Text;
 using Google.ProtocolBuffers;
-using MHServerEmu.Common.Extensions;
 using MHServerEmu.GameServer.Properties;
 
 namespace MHServerEmu.GameServer.Entities
 {
     public class Entity
     {
-        public ulong ReplicationPolicy { get; set; }
-        public ulong ReplicationId { get; set; }
-        public Property[] Properties { get; set; }
+        public uint ReplicationPolicy { get; set; }
+        public ReplicatedPropertyCollection PropertyCollection { get; set; }
         public ulong[] UnknownFields { get; set; } = Array.Empty<ulong>();
 
         public Entity(byte[] archiveData)
@@ -22,49 +20,39 @@ namespace MHServerEmu.GameServer.Entities
 
         public Entity() { }
 
-        public Entity(ulong replicationPolicy, ulong replicationId, Property[] properties, ulong[] unknownFields)
+        public Entity(uint replicationPolicy, ReplicatedPropertyCollection propertyCollection, ulong[] unknownFields)
         {
             ReplicationPolicy = replicationPolicy;
-            ReplicationId = replicationId;
-            Properties = properties;
+            PropertyCollection = propertyCollection;
             UnknownFields = unknownFields;
         }
 
         public virtual byte[] Encode()
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                WriteEntityFields(stream);
-                WriteUnknownFields(stream);
+                WriteEntityFields(cos);
+                WriteUnknownFields(cos);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
         public override string ToString()
         {
-            using (MemoryStream stream = new())
-            using (StreamWriter writer = new(stream))
-            {
-                WriteEntityString(writer);
-                WriteUnknownFieldString(writer);
-
-                writer.Flush();
-                return Encoding.UTF8.GetString(stream.ToArray());
-            }
+            StringBuilder sb = new();
+            WriteEntityString(sb);
+            WriteUnknownFieldString(sb);
+            return sb.ToString();
         }
 
         protected void ReadEntityFields(CodedInputStream stream)
         {
-            ReplicationPolicy = stream.ReadRawVarint64();
-            ReplicationId = stream.ReadRawVarint64();
-
-            Properties = new Property[stream.ReadRawUInt32()];
-            for (int i = 0; i < Properties.Length; i++)
-                Properties[i] = new(stream);
+            ReplicationPolicy = stream.ReadRawVarint32();
+            PropertyCollection = new(stream);
         }
 
         protected void ReadUnknownFields(CodedInputStream stream)
@@ -76,10 +64,8 @@ namespace MHServerEmu.GameServer.Entities
 
         protected void WriteEntityFields(CodedOutputStream stream)
         {
-            stream.WriteRawVarint64(ReplicationPolicy);
-            stream.WriteRawVarint64(ReplicationId);
-            stream.WriteRawBytes(BitConverter.GetBytes(Properties.Length));
-            foreach (Property property in Properties) stream.WriteRawBytes(property.Encode());
+            stream.WriteRawVarint32(ReplicationPolicy);
+            stream.WriteRawBytes(PropertyCollection.Encode());
         }
 
         protected void WriteUnknownFields(CodedOutputStream stream)
@@ -87,19 +73,16 @@ namespace MHServerEmu.GameServer.Entities
             foreach (ulong field in UnknownFields) stream.WriteRawVarint64(field);
         }
 
-        protected void WriteEntityString(StreamWriter writer)
+        protected void WriteEntityString(StringBuilder sb)
         {
-            writer.WriteLine($"ReplicationPolicy: 0x{ReplicationPolicy.ToString("X")}");
-            writer.WriteLine($"ReplicationId: 0x{ReplicationId.ToString("X")}");
-
-            for (int i = 0; i < Properties.Length; i++)
-                writer.WriteLine($"Property{i}: {Properties[i]}");
+            sb.AppendLine($"ReplicationPolicy: 0x{ReplicationPolicy:X}");
+            sb.AppendLine($"PropertyCollection: {PropertyCollection}");
         }
 
-        protected void WriteUnknownFieldString(StreamWriter writer)
+        protected void WriteUnknownFieldString(StringBuilder sb)
         {
             for (int i = 0; i < UnknownFields.Length; i++)
-                writer.WriteLine($"UnknownField{i}: 0x{UnknownFields[i].ToString("X")}");
+                sb.AppendLine($"UnknownField{i}: 0x{UnknownFields[i]:X}");
         }
     }
 }

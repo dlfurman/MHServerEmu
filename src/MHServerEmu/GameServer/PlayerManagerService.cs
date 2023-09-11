@@ -1,7 +1,6 @@
 ﻿using Gazillion;
 using Google.ProtocolBuffers;
-using MHServerEmu.Common;
-using MHServerEmu.GameServer.Regions;
+using MHServerEmu.Common.Logging;
 using MHServerEmu.Networking;
 
 namespace MHServerEmu.GameServer
@@ -71,84 +70,36 @@ namespace MHServerEmu.GameServer
                     //Logger.Trace(parsedPingMessage.ToString());
                     break;
 
-                case ClientToGameServerMessage.NetMessageTryInventoryMove:
-                    Logger.Info($"Received NetMessageTryInventoryMove");
-                    var tryInventoryMoveMessage = NetMessageTryInventoryMove.ParseFrom(message.Content);
-                    var inventoryMoveMessage = NetMessageInventoryMove.CreateBuilder()
-                        .SetEntityId(tryInventoryMoveMessage.ItemId)
-                        .SetInvLocContainerEntityId(tryInventoryMoveMessage.ToInventoryOwnerId)
-                        .SetInvLocInventoryPrototypeId(tryInventoryMoveMessage.ToInventoryPrototype)
-                        .SetInvLocSlot(tryInventoryMoveMessage.ToSlot)
-                        .Build();
-
-                    client.SendMessage(1, new(inventoryMoveMessage));
-                    break;
-
-                case ClientToGameServerMessage.NetMessageSwitchAvatar:
-                    Logger.Info($"Received NetMessageSwitchAvatar");
-                    var switchAvatarMessage = NetMessageSwitchAvatar.ParseFrom(message.Content);
-                    Logger.Trace(switchAvatarMessage.ToString());
-
-                    /* WIP - Hardcoded Black Cat -> Thor -> requires triggering an avatar swap back to Black Cat to move Thor again  
-                    List<GameMessage> messageList = new();
-                    messageList.Add(new(GameServerToClientMessage.NetMessageInventoryMove, NetMessageInventoryMove.CreateBuilder()
-                        .SetEntityId((ulong)HardcodedAvatarEntity.Thor)
-                        .SetDestOwnerDataId((ulong)HardcodedAvatarEntity.Thor)
-                        .SetInvLocContainerEntityId(14646212)
-                        .SetInvLocInventoryPrototypeId(9555311166682372646)
-                        .SetInvLocSlot(0)
-                        .Build().ToByteArray()));
-
-                    // Put player avatar entity in the game world
-                    byte[] avatarEntityEnterGameWorldArchiveData = {
-                        0x01, 0xB2, 0xF8, 0xFD, 0x06, 0xA0, 0x21, 0xF0, 0xA3, 0x01, 0xBC, 0x40,
-                        0x90, 0x2E, 0x91, 0x03, 0xBC, 0x05, 0x00, 0x00, 0x01
-                    };
-
-                    EntityEnterGameWorldArchiveData avatarEnterArchiveData = new(avatarEntityEnterGameWorldArchiveData);
-                    avatarEnterArchiveData.EntityId = (ulong)HardcodedAvatarEntity.Thor;
-
-                    messageList.Add(new(GameServerToClientMessage.NetMessageEntityEnterGameWorld,
-                        NetMessageEntityEnterGameWorld.CreateBuilder()
-                        .SetArchiveData(ByteString.CopyFrom(avatarEnterArchiveData.Encode()))
-                        .Build().ToByteArray()));
-
-                    client.SendMultipleMessages(1, messageList.ToArray());*/
-
-                    break;
-
-                case ClientToGameServerMessage.NetMessageGetCatalog:
-                    Logger.Info($"Received NetMessageGetCatalog");
-                    var dumpedCatalog = NetMessageCatalogItems.ParseFrom(PacketHelper.LoadMessagesFromPacketFile("NetMessageCatalogItems.bin")[0].Content);
-
-                    var catalog = NetMessageCatalogItems.CreateBuilder()
-                        .MergeFrom(dumpedCatalog)
-                        .SetTimestampSeconds(_gameServerManager.GetDateTime() / 1000000)
-                        .SetTimestampMicroseconds(_gameServerManager.GetDateTime())
-                        .SetClientmustdownloadimages(false)
-                        .Build();
-
-                    client.SendMessage(1, new(catalog));
-                    break;
-
+                // Game messages
                 case ClientToGameServerMessage.NetMessageUpdateAvatarState:
-                    //Logger.Trace($"Received NetMessageUpdateAvatarState");
-                    var updateAvatarState = NetMessageUpdateAvatarState.ParseFrom(message.Content);
-                    break;
-
-                case ClientToGameServerMessage.NetMessageRequestInterestInAvatarEquipment:
-                    Logger.Info($"Received NetMessageRequestInterestInAvatarEquipment");
-                    var requestInterestInAvatarEquipment = NetMessageRequestInterestInAvatarEquipment.ParseFrom(message.Content);
-                    break;
-
                 case ClientToGameServerMessage.NetMessageCellLoaded:
+                case ClientToGameServerMessage.NetMessageTryInventoryMove:
+                case ClientToGameServerMessage.NetMessageSwitchAvatar:
                 case ClientToGameServerMessage.NetMessageUseWaypoint:
+                case ClientToGameServerMessage.NetMessageRequestInterestInAvatarEquipment:
                     _gameServerManager.GameManager.GetGameById(client.GameId).Handle(client, muxId, message);
-
                     break;
 
+                // Grouping Manager messages
                 case ClientToGameServerMessage.NetMessageChat:
+                case ClientToGameServerMessage.NetMessageTell:
+                case ClientToGameServerMessage.NetMessageReportPlayer:
+                case ClientToGameServerMessage.NetMessageChatBanVote:
                     _gameServerManager.GroupingManagerService.Handle(client, muxId, message);
+                    break;
+
+                // Billing messages
+                case ClientToGameServerMessage.NetMessageGetCatalog:
+                case ClientToGameServerMessage.NetMessageGetCurrencyBalance:
+                case ClientToGameServerMessage.NetMessageBuyItemFromCatalog:
+                case ClientToGameServerMessage.NetMessageBuyGiftForOtherPlayer:
+                case ClientToGameServerMessage.NetMessagePurchaseUnlock:
+                case ClientToGameServerMessage.NetMessageGetGiftHistory:
+                    _gameServerManager.BillingService.Handle(client, muxId, message);
+                    break;
+
+                case ClientToGameServerMessage.NetMessageGracefulDisconnect:
+                    client.SendMuxDisconnect(1);
                     break;
 
                 default:

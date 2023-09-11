@@ -6,9 +6,11 @@ namespace MHServerEmu.GameServer.Common
 {
     public class Vector3
     {
-        public float X { get; set; }
-        public float Y { get; set; }
-        public float Z { get; set; }
+        // precision values: 3 for position, 6 for orientation
+
+        public float X { get; set; }    // Yaw for orientation
+        public float Y { get; set; }    // Pitch for orientation
+        public float Z { get; set; }    // Roll for orientation
 
         public Vector3()
         {
@@ -33,16 +35,16 @@ namespace MHServerEmu.GameServer.Common
 
         public byte[] Encode(int precision = 3)
         {
-            using (MemoryStream memoryStream = new())
+            using (MemoryStream ms = new())
             {
-                CodedOutputStream stream = CodedOutputStream.CreateInstance(memoryStream);
+                CodedOutputStream cos = CodedOutputStream.CreateInstance(ms);
 
-                stream.WriteRawFloat(X, precision);
-                stream.WriteRawFloat(Y, precision);
-                stream.WriteRawFloat(Z, precision);
+                cos.WriteRawFloat(X, precision);
+                cos.WriteRawFloat(Y, precision);
+                cos.WriteRawFloat(Z, precision);
 
-                stream.Flush();
-                return memoryStream.ToArray();
+                cos.Flush();
+                return ms.ToArray();
             }
         }
 
