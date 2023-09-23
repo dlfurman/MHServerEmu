@@ -2,6 +2,13 @@
 using Gazillion;
 using MHServerEmu.Common.Extensions;
 using MHServerEmu.Common.Logging;
+using MHServerEmu.GameServer.Entities;
+using MHServerEmu.GameServer.Entities.Locomotion;
+using MHServerEmu.GameServer.Powers;
+using MHServerEmu.GameServer.Properties;
+using MHServerEmu.GameServer.GameData.Gpak.FileFormats;
+using MHServerEmu.GameServer.GameData;
+using MHServerEmu.GameServer.Entities.Avatars;
 
 namespace MHServerEmu.Networking
 {
@@ -20,7 +27,7 @@ namespace MHServerEmu.Networking
                 CodedInputStream stream = CodedInputStream.CreateInstance(File.ReadAllBytes(path));
                 PacketIn packet = new(stream);
 
-                if (packet.Command == MuxCommand.Message)
+                if (packet.Command == MuxCommand.Data)
                 {
                     ParseServerMessagesFromPacket(packet, Path.Combine(PacketDirectory, $"{Path.GetFileNameWithoutExtension(path)}_parsed.txt"));
                 }
@@ -38,9 +45,9 @@ namespace MHServerEmu.Networking
 
             foreach (string file in files)
             {
-                if (file.EndsWith(".txt") == false)     // ignore previous parses
+                if (Path.GetExtension(file) == ".bin")     // ignore previous parses and other files
                 {
-                    Logger.Info($"Parsing {file}...");
+                    //Logger.Info($"Parsing {file}...");
                     ParseServerMessagesFromPacketFile(Path.GetFileName(file));
                     packetCount++;
                 }
@@ -62,7 +69,7 @@ namespace MHServerEmu.Networking
                 {
                     PacketIn packet = new(stream);
 
-                    if (packet.Command == MuxCommand.Message)
+                    if (packet.Command == MuxCommand.Data)
                     {
                         ParseServerMessagesFromPacket(packet, Path.Combine(PacketDirectory, $"{Path.GetFileNameWithoutExtension(path)}_packet{packetCount}_parsed.txt"));
                         packetCount++;
@@ -88,7 +95,7 @@ namespace MHServerEmu.Networking
                 {
                     PacketIn packet = new(stream);
 
-                    if (packet.Command == MuxCommand.Message)
+                    if (packet.Command == MuxCommand.Data)
                     {
                         byte[] rawPacket = packet.ToPacketOut().Data;
                         File.WriteAllBytes(Path.Combine(PacketDirectory, $"{Path.GetFileNameWithoutExtension(path)}_packet{packetCount}_raw.bin"), rawPacket);
@@ -122,47 +129,107 @@ namespace MHServerEmu.Networking
 
         private static void ParseServerMessagesFromPacket(PacketIn packet, string outputPath)
         {
-            using (StreamWriter streamWriter = new(outputPath))
+            using (StreamWriter writer = new(outputPath))
             {
+                int packetCount = 0;
+
                 foreach (GameMessage message in packet.Messages)
                 {
-                    string messageName = ((GameServerToClientMessage)message.Id).ToString();
-                    Logger.Trace($"Deserializing {messageName}...");
-                    streamWriter.WriteLine(messageName);
+                    writer.Write($"[{packetCount++}] ");
+
+                    string messageName = (packet.MuxId == 1) 
+                        ? ((GameServerToClientMessage)message.Id).ToString()
+                        : ((GroupingManagerMessage)message.Id).ToString();
+                    //Logger.Trace($"Deserializing {messageName}...");
+                    writer.WriteLine(messageName);
 
                     try
                     {
-                        IMessage protobufMessage = message.Deserialize(typeof(GameServerToClientMessage));
-                        streamWriter.WriteLine(protobufMessage);
+                        IMessage protobufMessage = (packet.MuxId == 1)
+                                ? message.Deserialize(typeof(GameServerToClientMessage))
+                                : message.Deserialize(typeof(GroupingManagerMessage));
 
                         switch (protobufMessage)
                         {
-                            case NetMessageEntityCreate entityCreateMessage:
-                                streamWriter.WriteLine($"_baseDataHex: {entityCreateMessage.BaseData.ToByteArray().ToHexString()}");
-                                streamWriter.WriteLine($"_archiveDataHex: {entityCreateMessage.ArchiveData.ToByteArray().ToHexString()}");
+                            default:
+                                writer.WriteLine(protobufMessage);
                                 break;
 
-                            case NetMessageRegionChange regionChangeMessage:
-                                streamWriter.WriteLine($"_archiveDataHex: {regionChangeMessage.ArchiveData.ToByteArray().ToHexString()}");
+                            case NetMessageEntityCreate entityCreate:
+                                // Parse base data
+                                EntityCreateBaseData baseData = new(entityCreate.BaseData.ToByteArray());
+                                writer.WriteLine($"BaseData: {baseData}");
+
+                                // Get blueprint for this entity
+                                Blueprint blueprint = GameDatabase.Calligraphy.GetPrototypeBlueprint(baseData.PrototypeId);
+                                writer.WriteLine($"Blueprint: {blueprint.ClassName}");
+
+                                // Parse entity depending on its blueprint class
+                                switch (blueprint.ClassName)
+                                {
+                                    case "EntityPrototype":
+                                        writer.WriteLine($"ArchiveData: {new Entity(entityCreate.ArchiveData.ToByteArray())}");
+                                        break;
+
+                                    case "WorldEntityPrototype":
+                                    case "AgentPrototype":
+                                        writer.WriteLine($"ArchiveData: {new WorldEntity(entityCreate.ArchiveData.ToByteArray())}");
+                                        break;
+
+                                    case "AvatarPrototype":
+                                        writer.WriteLine($"ArchiveData: {new Avatar(entityCreate.ArchiveData.ToByteArray())}");
+                                        break;
+
+                                    case "PlayerPrototype":
+                                        writer.WriteLine($"ArchiveData: {new Player(entityCreate.ArchiveData.ToByteArray())}");
+                                        break;
+                                }
+                                
                                 break;
 
-                            case NetMessageEntityEnterGameWorld entityEnterGameWorldMessage:
-                                streamWriter.WriteLine($"_archiveDataHex: {entityEnterGameWorldMessage.ArchiveData.ToByteArray().ToHexString()}");
+                            case NetMessageRegionChange regionChange:
+                                writer.WriteLine(protobufMessage);
+                                writer.WriteLine($"ArchiveDataHex: {regionChange.ArchiveData.ToByteArray().ToHexString()}");
                                 break;
 
-                            case NetMessageUpdateMiniMap updateMiniMapMessage:
-                                streamWriter.WriteLine($"_archiveDataHex: {updateMiniMapMessage.ArchiveData.ToByteArray().ToHexString()}");
+                            case NetMessageEntityEnterGameWorld entityEnterGameWorld:
+                                writer.WriteLine($"ArchiveData: {new EnterGameWorldArchive(entityEnterGameWorld.ArchiveData.ToByteArray())}");
+                                break;
+
+                            case NetMessageLocomotionStateUpdate locomotionStateUpdate:
+                                writer.WriteLine($"ArchiveData: {new LocomotionStateUpdateArchive(locomotionStateUpdate.ArchiveData.ToByteArray())}");
+                                break;
+
+                            case NetMessageActivatePower activatePower:
+                                writer.WriteLine($"ArchiveData: {new ActivatePowerArchive(activatePower.ArchiveData.ToByteArray())}");
+                                break;
+
+                            case NetMessagePowerResult powerResult:
+                                writer.WriteLine($"ArchiveData: {new PowerResultArchive(powerResult.ArchiveData.ToByteArray())}");
+                                break;
+
+                            case NetMessageAddCondition addCondition:
+                                writer.WriteLine($"ArchiveData: {new AddConditionArchive(addCondition.ArchiveData.ToByteArray())}");
+                                break;
+
+                            case NetMessageSetProperty setProperty:
+                                writer.WriteLine($"ReplicationId: {setProperty.ReplicationId}\n{new Property(setProperty)}");
+                                break;
+
+                            case NetMessageUpdateMiniMap updateMiniMap:
+                                writer.WriteLine($"ArchiveDataHex: {updateMiniMap.ArchiveData.ToByteArray().ToHexString()}");
                                 break;
                         }
                     }
-                    catch
+                    catch (Exception e)
                     {
-                        Logger.Warn($"Failed to deserialize {messageName}");
-                        streamWriter.WriteLine("Failed to deserialize");
+                        Logger.Warn($"Failed to deserialize {messageName} ({Path.GetFileName(outputPath)})");
+                        Logger.Trace(e.ToString());
+                        writer.WriteLine("Failed to deserialize");
                     }
 
-                    streamWriter.WriteLine();
-                    streamWriter.WriteLine();
+                    writer.WriteLine();
+                    writer.WriteLine();
                 }
             }
         }

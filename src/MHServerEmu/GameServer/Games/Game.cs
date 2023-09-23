@@ -7,6 +7,8 @@ using MHServerEmu.Common.Config;
 using MHServerEmu.Common.Logging;
 using MHServerEmu.GameServer.Entities;
 using MHServerEmu.GameServer.Entities.Avatars;
+using MHServerEmu.GameServer.GameData;
+using MHServerEmu.GameServer.Powers;
 using MHServerEmu.GameServer.Regions;
 using MHServerEmu.Networking;
 
@@ -16,27 +18,26 @@ namespace MHServerEmu.GameServer.Games
     {
         private static readonly Logger Logger = LogManager.CreateLogger();
 
-        private readonly GameServerManager _gameServerManager;
-
         public const int TickRate = 20;                 // Ticks per second based on client behavior
         public const long TickTime = 1000 / TickRate;   // ms per tick
 
-        private readonly Stopwatch _tickWatch;
+        private readonly object _gameLock = new();
+        private readonly Queue<QueuedGameMessage> _messageQueue = new();
+        private readonly Dictionary<FrontendClient, List<GameMessage>> _responseListDict = new();
+        private readonly Stopwatch _tickWatch = new();
+
+        private readonly GameServerManager _gameServerManager;
+
         private int _tickCount;
 
         public ulong Id { get; }
-        public RegionManager RegionManager { get; }
-        public ConcurrentDictionary<FrontendClient, Player> PlayerDict { get; }
+        public RegionManager RegionManager { get; } = new();
+        public ConcurrentDictionary<FrontendClient, Player> PlayerDict { get; } = new();
 
         public Game(GameServerManager gameServerManager, ulong id)
         {
             _gameServerManager = gameServerManager;
-
-            _tickWatch = new();
-
             Id = id;
-            RegionManager = new();
-            PlayerDict = new();
 
             // Start main game loop
             Thread gameThread = new(Update) { IsBackground = true, CurrentCulture = CultureInfo.InvariantCulture };
@@ -50,9 +51,18 @@ namespace MHServerEmu.GameServer.Games
                 _tickWatch.Restart();
                 Interlocked.Increment(ref _tickCount);
 
-                lock (this)     // lock to prevent state from being modified mid-update
+                lock (_gameLock)     // lock to prevent state from being modified mid-update
                 {
-                    // update here
+                    // Handle all queued messages
+                    while (_messageQueue.Count > 0)
+                        HandleQueuedMessage(_messageQueue.Dequeue());
+
+                    // Send responses to all clients
+                    foreach (var kvp in _responseListDict)
+                        kvp.Key.SendMessages(1, kvp.Value);     // no GroupingManager messages should be here, so we can assume that muxId for all messages is 1
+
+                    // Clear response list dict
+                    _responseListDict.Clear();
                 }
 
                 _tickWatch.Stop();
@@ -66,13 +76,65 @@ namespace MHServerEmu.GameServer.Games
 
         public void Handle(FrontendClient client, ushort muxId, GameMessage message)
         {
-            IMessage response;
+            lock (_gameLock)
+            {
+                _messageQueue.Enqueue(new(client, muxId, message));
+            }
+        }
+
+        public void Handle(FrontendClient client, ushort muxId, GameMessage[] messages)
+        {
+            foreach (GameMessage message in messages) Handle(client, muxId, message);
+        }
+
+        public void AddPlayer(FrontendClient client)
+        {
+            lock (_gameLock)
+            {
+                client.GameId = Id;
+                EnqueueResponses(client, GetBeginLoadingMessages(client.Session.Account.PlayerData));
+            }
+        }
+
+        public void MovePlayerToRegion(FrontendClient client, RegionPrototype region)
+        {
+            lock (_gameLock)
+            {
+                client.Session.Account.PlayerData.Region = region;
+                EnqueueResponses(client, GetBeginLoadingMessages(client.Session.Account.PlayerData, false));
+                client.IsLoading = true;
+            }
+        }
+
+        #region Message Queue
+
+        private void EnqueueResponse(FrontendClient client, GameMessage message)
+        {
+            if (_responseListDict.TryGetValue(client, out _) == false) _responseListDict.Add(client, new());
+            _responseListDict[client].Add(message);
+        }
+
+        private void EnqueueResponses(FrontendClient client, IEnumerable<GameMessage> messages)
+        {
+            if (_responseListDict.TryGetValue(client, out _) == false) _responseListDict.Add(client, new());
+            _responseListDict[client].AddRange(messages);                
+        }
+
+        private void HandleQueuedMessage(QueuedGameMessage queuedMessage)
+        {
+            FrontendClient client = queuedMessage.Client;
+            GameMessage message = queuedMessage.Message;
+
+            string powerPrototypePath;
+
             switch ((ClientToGameServerMessage)message.Id)
             {
                 case ClientToGameServerMessage.NetMessageUpdateAvatarState:
-                    /* UpdateAvatarState spam
-                    var updateAvatarStateMessage = NetMessageUpdateAvatarState.ParseFrom(message.Content);
+                    var updateAvatarStateMessage = NetMessageUpdateAvatarState.ParseFrom(message.Payload);
                     UpdateAvatarStateArchive avatarState = new(updateAvatarStateMessage.ArchiveData.ToByteArray());
+                    client.LastPosition = avatarState.Position;
+
+                    /* Logger spam
                     //Logger.Trace(avatarState.ToString());
                     Logger.Trace(avatarState.Position.ToString());
                     */
@@ -83,28 +145,89 @@ namespace MHServerEmu.GameServer.Games
                     Logger.Info($"Received NetMessageCellLoaded");
                     if (client.IsLoading)
                     {
-                        client.SendMultipleMessages(1, GetFinishLoadingMessages(client.Session.Account.PlayerData));
+                        EnqueueResponses(client, GetFinishLoadingMessages(client.Session.Account.PlayerData));
                         client.IsLoading = false;
                     }
 
                     break;
 
+                case ClientToGameServerMessage.NetMessageTryActivatePower:
+                    /* ActivatePower using TryActivatePower data
+                    var tryActivatePower = NetMessageTryActivatePower.ParseFrom(message.Content);
+                    ActivatePowerArchive activatePowerArchive = new(tryActivatePowerMessage, client.LastPosition);
+                    client.SendMessage(muxId, new(NetMessageActivatePower.CreateBuilder()
+                        .SetArchiveData(ByteString.CopyFrom(activatePowerArchive.Encode()))
+                        .Build()));
+                    */
+
+                    var tryActivatePower = NetMessageTryActivatePower.ParseFrom(message.Payload);
+
+                    if (GameDatabase.TryGetPrototypePath(tryActivatePower.PowerPrototypeId, out powerPrototypePath))
+                        Logger.Trace($"Received TryActivatePower for {powerPrototypePath}");
+                    else
+                        Logger.Trace($"Received TryActivatePower for invalid prototype id {tryActivatePower.PowerPrototypeId}");
+
+                    //Logger.Trace(tryActivatePower.ToString());
+
+                    PowerResultArchive archive = new(tryActivatePower);
+                    EnqueueResponse(client, new(NetMessagePowerResult.CreateBuilder()
+                        .SetArchiveData(ByteString.CopyFrom(archive.Encode()))
+                        .Build()));
+
+                    break;
+
+                case ClientToGameServerMessage.NetMessagePowerRelease:
+                    var powerRelease = NetMessagePowerRelease.ParseFrom(message.Payload);
+
+                    if (GameDatabase.TryGetPrototypePath(powerRelease.PowerPrototypeId, out powerPrototypePath))
+                        Logger.Trace($"Received PowerRelease for {powerPrototypePath}");
+                    else
+                        Logger.Trace($"Received PowerRelease for invalid prototype id {powerRelease.PowerPrototypeId}");
+
+                    break;
+
+                case ClientToGameServerMessage.NetMessageTryCancelPower:
+                    var tryCancelPower = NetMessageTryCancelPower.ParseFrom(message.Payload);
+
+                    if (GameDatabase.TryGetPrototypePath(tryCancelPower.PowerPrototypeId, out powerPrototypePath))
+                        Logger.Trace($"Received TryCancelPower for {powerPrototypePath}");
+                    else
+                        Logger.Trace($"Received TryCancelPower for invalid prototype id {tryCancelPower.PowerPrototypeId}");
+
+                    break;
+
+                case ClientToGameServerMessage.NetMessageTryCancelActivePower:
+                    var tryCancelActivePower = NetMessageTryCancelActivePower.ParseFrom(message.Payload);
+                    Logger.Trace("Received TryCancelActivePower");
+                    break;
+
+                case ClientToGameServerMessage.NetMessageContinuousPowerUpdateToServer:
+                    var continuousPowerUpdate = NetMessageContinuousPowerUpdateToServer.ParseFrom(message.Payload);
+
+                    if (GameDatabase.TryGetPrototypePath(continuousPowerUpdate.PowerPrototypeId, out powerPrototypePath))
+                        Logger.Trace($"Received ContinuousPowerUpdate for {powerPrototypePath}");
+                    else
+                        Logger.Trace($"Received ContinuousPowerUpdate for invalid prototype id {continuousPowerUpdate.PowerPrototypeId}");
+
+                    //Logger.Trace(continuousPowerUpdate.ToString());
+
+                    break;
+
                 case ClientToGameServerMessage.NetMessageTryInventoryMove:
                     Logger.Info($"Received NetMessageTryInventoryMove");
-                    var tryInventoryMoveMessage = NetMessageTryInventoryMove.ParseFrom(message.Content);
-                    var inventoryMoveMessage = NetMessageInventoryMove.CreateBuilder()
+                    var tryInventoryMoveMessage = NetMessageTryInventoryMove.ParseFrom(message.Payload);
+
+                    EnqueueResponse(client, new(NetMessageInventoryMove.CreateBuilder()
                         .SetEntityId(tryInventoryMoveMessage.ItemId)
                         .SetInvLocContainerEntityId(tryInventoryMoveMessage.ToInventoryOwnerId)
                         .SetInvLocInventoryPrototypeId(tryInventoryMoveMessage.ToInventoryPrototype)
                         .SetInvLocSlot(tryInventoryMoveMessage.ToSlot)
-                        .Build();
-
-                    client.SendMessage(1, new(inventoryMoveMessage));
+                        .Build()));
                     break;
 
                 case ClientToGameServerMessage.NetMessageSwitchAvatar:
                     Logger.Info($"Received NetMessageSwitchAvatar");
-                    var switchAvatarMessage = NetMessageSwitchAvatar.ParseFrom(message.Content);
+                    var switchAvatarMessage = NetMessageSwitchAvatar.ParseFrom(message.Payload);
                     Logger.Trace(switchAvatarMessage.ToString());
 
                     // A hack for changing starting avatar without using chat commands
@@ -115,19 +238,12 @@ namespace MHServerEmu.GameServer.Games
                         if (Enum.TryParse(typeof(HardcodedAvatarEntity), avatarName, true, out object avatar))
                         {
                             client.Session.Account.PlayerData.Avatar = (HardcodedAvatarEntity)avatar;
-
-                            var chatMessage = ChatNormalMessage.CreateBuilder()
-                                .SetRoomType(ChatRoomTypes.CHAT_ROOM_TYPE_METAGAME)
-                                .SetFromPlayerName(ConfigManager.GroupingManager.MotdPlayerName)
-                                .SetTheMessage(ChatMessage.CreateBuilder().SetBody($"Changing avatar to {client.Session.Account.PlayerData.Avatar}. Relog for changes to take effect."))
-                                .SetPrestigeLevel(6)
-                                .Build();
-
-                            client.SendMessage(2, new(chatMessage));
+                            _gameServerManager.GroupingManagerService.SendMetagameChatMessage(client, $"Changing avatar to {client.Session.Account.PlayerData.Avatar}. Relog for changes to take effect.");
                         }
                     }
 
-                    /* WIP - Hardcoded Black Cat -> Thor -> requires triggering an avatar swap back to Black Cat to move Thor again  
+                    /* Old experimental code
+                    // WIP - Hardcoded Black Cat -> Thor -> requires triggering an avatar swap back to Black Cat to move Thor again  
                     List<GameMessage> messageList = new();
                     messageList.Add(new(GameServerToClientMessage.NetMessageInventoryMove, NetMessageInventoryMove.CreateBuilder()
                         .SetEntityId((ulong)HardcodedAvatarEntity.Thor)
@@ -157,7 +273,7 @@ namespace MHServerEmu.GameServer.Games
 
                 case ClientToGameServerMessage.NetMessageUseWaypoint:
                     Logger.Info($"Received NetMessageUseWaypoint message");
-                    var useWaypointMessage = NetMessageUseWaypoint.ParseFrom(message.Content);
+                    var useWaypointMessage = NetMessageUseWaypoint.ParseFrom(message.Payload);
 
                     Logger.Trace(useWaypointMessage.ToString());
 
@@ -172,7 +288,7 @@ namespace MHServerEmu.GameServer.Games
 
                 case ClientToGameServerMessage.NetMessageRequestInterestInAvatarEquipment:
                     Logger.Info($"Received NetMessageRequestInterestInAvatarEquipment");
-                    var requestInterestInAvatarEquipment = NetMessageRequestInterestInAvatarEquipment.ParseFrom(message.Content);
+                    var requestInterestInAvatarEquipment = NetMessageRequestInterestInAvatarEquipment.ParseFrom(message.Payload);
                     break;
 
                 default:
@@ -181,37 +297,6 @@ namespace MHServerEmu.GameServer.Games
             }
         }
 
-        public void Handle(FrontendClient client, ushort muxId, GameMessage[] messages)
-        {
-            foreach (GameMessage message in messages) Handle(client, muxId, message);
-        }
-
-        public void AddPlayer(FrontendClient client)
-        {
-            client.GameId = Id;
-
-            client.SendMessage(1, new(NetMessageQueueLoadingScreen.CreateBuilder().SetRegionPrototypeId(0).Build()));
-            client.SendMessage(1, new(_gameServerManager.AchievementDatabase.ToNetMessageAchievementDatabaseDump()));
-            // NetMessageQueryIsRegionAvailable regionPrototype: 9833127629697912670 should go in the same packet as AchievementDatabaseDump
-
-            var chatBroadcastMessage = ChatBroadcastMessage.CreateBuilder()         // Send MOTD
-                .SetRoomType(ChatRoomTypes.CHAT_ROOM_TYPE_BROADCAST_ALL_SERVERS)
-                .SetFromPlayerName(ConfigManager.GroupingManager.MotdPlayerName)
-                .SetTheMessage(ChatMessage.CreateBuilder().SetBody(ConfigManager.GroupingManager.MotdText))
-                .SetPrestigeLevel(ConfigManager.GroupingManager.MotdPrestigeLevel)
-                .Build();
-
-            client.SendMessage(2, new(chatBroadcastMessage));
-
-            client.SendMultipleMessages(1, GetBeginLoadingMessages(client.Session.Account.PlayerData));
-            client.IsLoading = true;
-        }
-
-        public void MovePlayerToRegion(FrontendClient client, RegionPrototype region)
-        {
-            client.Session.Account.PlayerData.Region = region;
-            client.SendMultipleMessages(1, GetBeginLoadingMessages(client.Session.Account.PlayerData, false));
-            client.IsLoading = true;
-        }
+        #endregion
     }
 }

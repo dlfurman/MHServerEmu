@@ -35,7 +35,7 @@ namespace MHServerEmu.GameServer.Frontend
             {
                 case FrontendProtocolMessage.ClientCredentials:
                     Logger.Info($"Received ClientCredentials on muxId {muxId}");
-                    ClientCredentials clientCredentials = ClientCredentials.ParseFrom(message.Content);
+                    ClientCredentials clientCredentials = ClientCredentials.ParseFrom(message.Payload);
 
                     if (_sessionDict.ContainsKey(clientCredentials.Sessionid))
                     {
@@ -104,17 +104,29 @@ namespace MHServerEmu.GameServer.Frontend
                     break;
 
                 case FrontendProtocolMessage.InitialClientHandshake:
-                    InitialClientHandshake initialClientHandshake = InitialClientHandshake.ParseFrom(message.Content);
+                    InitialClientHandshake initialClientHandshake = InitialClientHandshake.ParseFrom(message.Payload);
                     Logger.Info($"Received InitialClientHandshake for {initialClientHandshake.ServerType} on muxId {muxId}");
 
-                    if (initialClientHandshake.ServerType == PubSubServerTypes.PLAYERMGR_SERVER_FRONTEND)
+                    // These handshakes should probably be handled by PlayerManagerService and GroupingManagerService. They should probably also track clients on their own.
+                    if (initialClientHandshake.ServerType == PubSubServerTypes.PLAYERMGR_SERVER_FRONTEND && client.FinishedPlayerMgrServerFrontendHandshake == false)
                     {
                         client.FinishedPlayerMgrServerFrontendHandshake = true;
+                        
+                        // Queue loading
+                        client.IsLoading = true;
+                        client.SendMessage(1, new(NetMessageQueueLoadingScreen.CreateBuilder().SetRegionPrototypeId(0).Build()));
+
+                        // Send achievement database
+                        client.SendMessage(1, new(_gameServerManager.AchievementDatabase.ToNetMessageAchievementDatabaseDump()));
+                        // NetMessageQueryIsRegionAvailable regionPrototype: 9833127629697912670 should go in the same packet as AchievementDatabaseDump
+
+                        // Add player to a game
+                        _gameServerManager.GameManager.GetAvailableGame().AddPlayer(client);
                     }
-                    else if (initialClientHandshake.ServerType == PubSubServerTypes.GROUPING_MANAGER_FRONTEND)
+                    else if (initialClientHandshake.ServerType == PubSubServerTypes.GROUPING_MANAGER_FRONTEND && client.FinishedGroupingManagerFrontendHandshake == false)
                     {
                         client.FinishedGroupingManagerFrontendHandshake = true;
-                        _gameServerManager.GameManager.GetAvailableGame().AddPlayer(client);
+                        _gameServerManager.GroupingManagerService.SendMotd(client);
                     }
 
                     break;

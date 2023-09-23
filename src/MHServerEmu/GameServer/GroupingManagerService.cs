@@ -22,7 +22,7 @@ namespace MHServerEmu.GameServer
             switch ((ClientToGameServerMessage)message.Id)
             {
                 case ClientToGameServerMessage.NetMessageChat:
-                    var chatMessageIn = NetMessageChat.ParseFrom(message.Content);
+                    var chatMessageIn = NetMessageChat.ParseFrom(message.Payload);
 
                     if (CommandManager.TryParse(chatMessageIn.TheMessage.Body, client) == false)
                     {
@@ -48,6 +48,14 @@ namespace MHServerEmu.GameServer
 
                     break;
 
+                case ClientToGameServerMessage.NetMessageTell:
+                    var tellMessage = NetMessageTell.ParseFrom(message.Payload);
+                    Logger.Trace($"Received tell for {tellMessage.TargetPlayerName}");
+
+                    // Respond with an error for now
+                    client.SendMessage(2, new(ChatErrorMessage.CreateBuilder().SetErrorMessage(ChatErrorMessages.CHAT_ERROR_NO_SUCH_USER).Build()));
+                    break;
+
                 default:
                     Logger.Warn($"Received unhandled message {(ClientToGameServerMessage)message.Id} (id {message.Id})");
                     break;
@@ -57,6 +65,26 @@ namespace MHServerEmu.GameServer
         public void Handle(FrontendClient client, ushort muxId, GameMessage[] messages)
         {
             foreach (GameMessage message in messages) Handle(client, muxId, message);
+        }
+
+        public void SendMotd(FrontendClient client)
+        {
+            client.SendMessage(2, new(ChatBroadcastMessage.CreateBuilder()
+                .SetRoomType(ChatRoomTypes.CHAT_ROOM_TYPE_BROADCAST_ALL_SERVERS)
+                .SetFromPlayerName(ConfigManager.GroupingManager.MotdPlayerName)
+                .SetTheMessage(ChatMessage.CreateBuilder().SetBody(ConfigManager.GroupingManager.MotdText))
+                .SetPrestigeLevel(ConfigManager.GroupingManager.MotdPrestigeLevel)
+                .Build()));
+        }
+
+        public void SendMetagameChatMessage(FrontendClient client, string text)
+        {
+            client.SendMessage(2, new(ChatNormalMessage.CreateBuilder()
+                .SetRoomType(ChatRoomTypes.CHAT_ROOM_TYPE_METAGAME)
+                .SetFromPlayerName(ConfigManager.GroupingManager.MotdPlayerName)
+                .SetTheMessage(ChatMessage.CreateBuilder().SetBody(text))
+                .SetPrestigeLevel(ConfigManager.GroupingManager.MotdPrestigeLevel)
+                .Build()));
         }
     }
 }

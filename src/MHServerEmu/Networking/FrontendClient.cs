@@ -1,6 +1,7 @@
 ﻿using Google.ProtocolBuffers;
 using MHServerEmu.Common.Logging;
 using MHServerEmu.GameServer;
+using MHServerEmu.GameServer.Common;
 using MHServerEmu.GameServer.Frontend;
 using MHServerEmu.GameServer.Games;
 using MHServerEmu.GameServer.Regions;
@@ -18,9 +19,12 @@ namespace MHServerEmu.Networking
         public ClientSession Session { get; private set; } = null;
         public bool FinishedPlayerMgrServerFrontendHandshake { get; set; } = false;
         public bool FinishedGroupingManagerFrontendHandshake { get; set; } = false;
-        public bool IsLoading { get; set; } = false;
         public ulong GameId { get; set; }
         public Game CurrentGame { get => _gameServerManager.GameManager.GetGameById(GameId); }
+
+        // Temporarily store state here instead of Game
+        public bool IsLoading { get; set; } = false;
+        public Vector3 LastPosition { get; set; }
 
         public FrontendClient(Connection connection, GameServerManager gameServerManager)
         {
@@ -37,10 +41,10 @@ namespace MHServerEmu.Networking
             {
                 case MuxCommand.Connect:
                     Logger.Info($"Accepting connection for muxId {packet.MuxId}");
-                    Connection.Send(new PacketOut(packet.MuxId, MuxCommand.Accept));
+                    Connection.Send(new PacketOut(packet.MuxId, MuxCommand.ConnectAck));
                     break;
 
-                case MuxCommand.Accept:
+                case MuxCommand.ConnectAck:
                     Logger.Warn($"Received accept for muxId {packet.MuxId}. Is this supposed to happen?");
                     break;
 
@@ -48,11 +52,11 @@ namespace MHServerEmu.Networking
                     Logger.Info($"Received disconnect for muxId {packet.MuxId}");
                     break;
 
-                case MuxCommand.Insert:
-                    Logger.Warn($"Received insert for muxId {packet.MuxId}. Is this supposed to happen?");
+                case MuxCommand.ConnectWithData:
+                    Logger.Warn($"Received connectdata for muxId {packet.MuxId}. Is this supposed to happen?");
                     break;
 
-                case MuxCommand.Message:
+                case MuxCommand.Data:
                     _gameServerManager.Handle(this, packet.MuxId, packet.Messages);
                     break;
             }
@@ -83,24 +87,16 @@ namespace MHServerEmu.Networking
 
         public void SendMessage(ushort muxId, GameMessage message)
         {
-            PacketOut packet = new(muxId, MuxCommand.Message);
+            PacketOut packet = new(muxId, MuxCommand.Data);
             packet.AddMessage(message);
             Connection.Send(packet);
         }
 
-        public void SendMultipleMessages(ushort muxId, GameMessage[] messages)
+        public void SendMessages(ushort muxId, IEnumerable<GameMessage> messages)
         {
-            PacketOut packet = new(muxId, MuxCommand.Message);
-            foreach (GameMessage message in messages)
-            {
-                packet.AddMessage(message);
-            }
+            PacketOut packet = new(muxId, MuxCommand.Data);
+            packet.AddMessages(messages);
             Connection.Send(packet);
-        }
-
-        public void SendMultipleMessages(ushort muxId, List<GameMessage> messageList)
-        {
-            SendMultipleMessages(muxId, messageList.ToArray());
         }
 
         public void SendPacketFromFile(string fileName)
